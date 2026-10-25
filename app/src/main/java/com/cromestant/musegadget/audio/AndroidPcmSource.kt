@@ -41,6 +41,9 @@ class AndroidPcmSource(
         if (minBuf <= 0) return false // ERROR_BAD_VALUE / ERROR: no recorder
         val rec = try {
             AudioRecord(
+                // MIC, not VOICE_RECOGNITION: the recognition source is
+                // unrouted on Portal builds and yields all-zero buffers.
+                // Raw MIC captures real (if quiet) room audio.
                 MediaRecorder.AudioSource.MIC,
                 sampleRate,
                 AudioFormat.CHANNEL_IN_MONO,

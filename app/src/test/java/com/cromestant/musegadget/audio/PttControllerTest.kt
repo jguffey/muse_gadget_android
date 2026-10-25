@@ -65,6 +65,21 @@ class PttControllerTest {
     }
 
     @Test
+    fun silentCaptureDiscarded() {
+        val clock = FakeClock(0)
+        val transport = FakeVoiceTransport()
+        var tooShort = 0
+        val source = FakeSource().apply { fakeMaxAmplitude = 0.01 }
+        val ptt = PttController(clock, source, transport, onTooShort = { tooShort++ })
+        assertTrue(ptt.start())
+        clock.t = 2500
+        assertFalse(ptt.stop())
+        assertEquals(1, tooShort)
+        assertNull(transport.lastJson)
+        assertEquals(PttController.State.IDLE, ptt.currentState())
+    }
+
+    @Test
     fun autoStopAt15s() {
         val clock = FakeClock(0)
         val transport = FakeVoiceTransport()

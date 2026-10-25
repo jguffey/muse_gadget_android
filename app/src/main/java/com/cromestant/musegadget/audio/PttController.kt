@@ -162,7 +162,7 @@ class PttController(
             onTooShort?.invoke()
             return false
         }
-        System.out.println("MuseGadgetVoice: PttController.stop elapsed=" + elapsed + "ms pcm=" + pcm.size)
+        System.out.println("MuseGadgetVoice: PttController.stop elapsed=" + elapsed + "ms pcm=" + pcm.size + " maxAmp=" + maxAmp)
         val wav = WavEncoder.pcmToWav(pcm, sampleRate)
         val b64 = Base64.getEncoder().encodeToString(wav)
         lastCaptureInfo = CaptureInfo(elapsed, pcm.size, b64.length)
