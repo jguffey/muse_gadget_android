@@ -151,7 +151,7 @@ class MainActivity : Activity() {
         refreshBtn = Button(this).apply { text = "Refresh status" }
 
         tokenSave.setOnClickListener { saveToken() }
-        tokenClear.setOnClickListener { store.clear(); renderToken() }
+        tokenClear.setOnClickListener { store.clear(); renderToken(); renderStatus() }
         // Tap = start with VAD auto-stop; Hold = record while held, stop on release.
         pttButton.setOnTouchListener { _, event ->
             when (event.action) {
@@ -263,6 +263,8 @@ class MainActivity : Activity() {
                 android.widget.LinearLayout.LayoutParams.MATCH_PARENT, 3f)
         }
         val mainHeader = sectionHeader("MUSE")
+        // Tap the MUSE header to open/close the setup screens (token + status).
+        mainHeader.setOnClickListener { toggleGate() }
         val mainScroll = scrollableContent()
         // Reuse pttResult as the main display
         mainScroll.addView(pttResult)
@@ -523,6 +525,7 @@ class MainActivity : Activity() {
             tokenMsg.text = "Malformed token (expected mgst_... from gadgets.muse.ai)."
         }
         renderToken()
+        renderStatus()
     }
 
     private fun renderToken() {
@@ -548,10 +551,24 @@ class MainActivity : Activity() {
         overlay?.visibility = if (visible) android.view.View.VISIBLE else android.view.View.GONE
     }
 
+    /** Manually toggle the setup overlay (MUSE header tap). */
+    private fun toggleGate() {
+        val root = findViewById<android.view.View>(android.R.id.content)
+        val overlay = root?.findViewWithTag<android.view.View>("gate_overlay")
+        overlay?.let {
+            it.visibility = if (it.visibility == android.view.View.VISIBLE) {
+                android.view.View.GONE
+            } else {
+                android.view.View.VISIBLE
+            }
+        }
+    }
+
     private fun renderStatus() {
         val svc = GadgetService.instance
         if (svc == null) {
             statusView.text = "Service: starting..."
+            setGateVisible(store.load() == null)
             return
         }
         if (!svc.isPeripheralSupported()) {
@@ -561,7 +578,9 @@ class MainActivity : Activity() {
             tokenInput.isEnabled = false
             tokenSave.isEnabled = false
         } else {
-            setGateVisible(false); gateView.visibility = View.GONE
+            // Setup gate stays up until a token is saved (was: always hidden here,
+            // which made the token screen unreachable on supported units).
+            setGateVisible(store.load() == null); gateView.visibility = View.GONE
             pttButton.isEnabled = true
             tokenInput.isEnabled = true
             tokenSave.isEnabled = true
