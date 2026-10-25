@@ -127,17 +127,23 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(32, 32, 32, 32)
         }
-        gateView = TextView(this).apply { visibility = View.GONE }
-        permView = TextView(this)
+        val setupText = 0xFFE0E0E0.toInt()
+        gateView = TextView(this).apply { visibility = View.GONE; setTextColor(setupText) }
+        permView = TextView(this).apply { setTextColor(setupText) }
         tokenHelp = TextView(this).apply {
             text = "Paste your SDK token from gadgets.muse.ai. It is stored only on this device and never logged or transmitted except inside the pairing protocol."
+            setTextColor(setupText)
         }
-        tokenInput = EditText(this).apply { hint = "mgst_..." }
+        tokenInput = EditText(this).apply {
+            hint = "mgst_..."
+            setTextColor(setupText)
+            setHintTextColor(0xFF888888.toInt())
+        }
         tokenSave = Button(this).apply { text = "Save token" }
-        tokenMsg = TextView(this)
-        tokenSaved = TextView(this)
+        tokenMsg = TextView(this).apply { setTextColor(setupText) }
+        tokenSaved = TextView(this).apply { setTextColor(setupText) }
         tokenClear = Button(this).apply { text = "Clear token" }
-        statusView = TextView(this)
+        statusView = TextView(this).apply { setTextColor(setupText) }
         pttButton = Button(this).apply {
             text = "TAP TO TALK"
             textSize = 24f
@@ -145,6 +151,7 @@ class MainActivity : Activity() {
         }
         pttResult = TextView(this).apply {
             textSize = 26f
+            setTextColor(0xFFE0E0E0.toInt())
             setLineSpacing(8f, 1.15f)
             setPadding(24, 24, 24, 24)
         }
