@@ -19,7 +19,16 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <service android:name=".svc.GadgetService" />
+        <service
+            android:name=".svc.GadgetService"
+            android:exported="true" />
+        <receiver
+            android:name=".svc.VoiceTurnReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.cromestant.musegadget.action.VOICE_TURN" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>

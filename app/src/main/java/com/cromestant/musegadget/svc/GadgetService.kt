@@ -9,7 +9,11 @@ import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 import android.net.wifi.WifiManager
+import com.cromestant.musegadget.audio.LinkVoiceTransport
+import com.cromestant.musegadget.audio.VoiceNote
 import com.cromestant.musegadget.ble.GattPeripheral
+import com.cromestant.musegadget.link.VoiceTurnListener
+import java.util.Base64
 import com.cromestant.musegadget.identity.IdentityProtocol
 import com.cromestant.musegadget.identity.TokenStore
 import com.cromestant.musegadget.link.GadgetLink
@@ -32,6 +36,34 @@ class GadgetService : Service() {
         const val CHANNEL_ID = "musegadget_ble"
         const val NOTIF_ID = 1
         const val FIRMWARE_VERSION = "1.0"
+
+        /**
+         * Cross-app command: send one pre-recorded voice note (extra "wav",
+         * WAV bytes) over the paired link. Recording happens in the caller's
+         * foreground activity — background AudioRecord yields zeros on Portal.
+         */
+        const val ACTION_VOICE_TURN = "com.cromestant.musegadget.action.VOICE_TURN"
+        /**
+         * Optional VOICE_TURN extras naming the reply broadcast target, so any
+         * dashboard app can use the voice-turn API. Absent or blank falls back
+         * to [REPLY_ACTION]/[REPLY_PACKAGE].
+         */
+        const val EXTRA_REPLY_PACKAGE = "reply_package"
+        const val EXTRA_REPLY_ACTION = "reply_action"
+        /** Default reply broadcast (PortalDash); extras: text / error / state. */
+        const val REPLY_ACTION = "com.example.portaldash.action.VOICE_REPLY"
+        const val REPLY_PACKAGE = "com.example.portaldash"
+
+        /**
+         * Resolve the reply broadcast target: explicit extras win, missing or
+         * blank values fall back to the PortalDash defaults. Returns
+         * (action, package).
+         */
+        fun resolveReplyTarget(packageExtra: String?, actionExtra: String?): Pair<String, String> {
+            val pkg = packageExtra?.takeIf { it.isNotBlank() } ?: REPLY_PACKAGE
+            val act = actionExtra?.takeIf { it.isNotBlank() } ?: REPLY_ACTION
+            return act to pkg
+        }
 
         // Singleton for the single-activity UI; set in onCreate, cleared in onDestroy.
         @Volatile var instance: GadgetService? = null
@@ -145,8 +177,108 @@ class GadgetService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        start()
+        if (intent?.action == ACTION_VOICE_TURN) {
+            handleVoiceNote(intent.getByteArrayExtra("wav"), intent)
+        } else {
+            start()
+        }
         return START_STICKY
+    }
+
+    @Volatile private var headlessTurnBusy = false
+
+    /**
+     * Send one caller-recorded voice note over the paired link, speak the
+     * reply (the link layer does that itself), and broadcast the final text
+     * back to the caller ([EXTRA_REPLY_PACKAGE]/[EXTRA_REPLY_ACTION] extras,
+     * PortalDash defaults). Recording lives in the caller's foreground
+     * activity: background AudioRecord yields zeros on Portal, so the service
+     * never captures.
+     */
+    private fun handleVoiceNote(wav: ByteArray?, intent: Intent?) {
+        val (replyAction, replyPackage) = resolveReplyTarget(
+            intent?.getStringExtra(EXTRA_REPLY_PACKAGE),
+            intent?.getStringExtra(EXTRA_REPLY_ACTION),
+        )
+        if (wav == null || wav.size < 1000) {
+            sendVoiceReply(replyAction, replyPackage, error = "Didn't catch that")
+            return
+        }
+        synchronized(this) {
+            if (headlessTurnBusy) {
+                sendVoiceReply(replyAction, replyPackage, error = "Busy, try again")
+                return
+            }
+            headlessTurnBusy = true
+        }
+        fun finishWithError(msg: String) {
+            headlessTurnBusy = false
+            sendVoiceReply(replyAction, replyPackage, error = msg)
+        }
+        if (!isProvisioned()) {
+            finishWithError("Gadget not paired yet")
+            return
+        }
+        try {
+            gadgetLink.stopTtsPlayback()
+        } catch (_: Exception) {
+        }
+        val listener = object : VoiceTurnListener {
+            override fun onAck() {
+                sendVoiceReply(replyAction, replyPackage, state = "thinking")
+            }
+
+            override fun onPartial(text: String) {
+                if (text.trim().isEmpty()) return
+                if (isStructuredMessage(text)) return
+                sendVoiceReply(replyAction, replyPackage, partial = text)
+            }
+
+            override fun onFinal(text: String) {
+                headlessTurnBusy = false
+                sendVoiceReply(replyAction, replyPackage, text = text)
+            }
+
+            override fun onError(error: String) {
+                headlessTurnBusy = false
+                sendVoiceReply(replyAction, replyPackage, error = error)
+            }
+        }
+        val frame = try {
+            VoiceNote.frameVoiceNote(Base64.getEncoder().encodeToString(wav))
+        } catch (e: Exception) {
+            finishWithError("Voice unavailable")
+            return
+        }
+        LinkVoiceTransport({ gadgetLink }, listener).sendVoiceNote(frame)
+    }
+
+    private fun sendVoiceReply(
+        replyAction: String,
+        replyPackage: String,
+        text: String? = null,
+        error: String? = null,
+        state: String? = null,
+        partial: String? = null,
+    ) {
+        val reply = Intent(replyAction).setPackage(replyPackage)
+        if (text != null) reply.putExtra("text", text)
+        if (error != null) reply.putExtra("error", error)
+        if (state != null) reply.putExtra("state", state)
+        if (partial != null) reply.putExtra("partial", partial)
+        sendBroadcast(reply)
+    }
+
+    /** Digest/ticker/artifact/tasks side messages must not render as chat text. */
+    private fun isStructuredMessage(text: String): Boolean {
+        val trimmed = text.trim()
+        if (!trimmed.startsWith("{")) return false
+        return try {
+            val type = org.json.JSONObject(trimmed).optString("type", "")
+            type in listOf("digest", "ticker", "artifact", "tasks")
+        } catch (_: Exception) {
+            false
+        }
     }
 
     /** Open GATT server and advertise while unpaired; no-op when unsupported. */
